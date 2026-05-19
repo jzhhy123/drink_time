@@ -1,0 +1,48 @@
+# Codemagic CI - 在云端 Mac 上把这个 Capacitor 工程打包成 iOS App 并发到 TestFlight
+# 使用前需在 Codemagic 网站完成两处配置（详见 ONBOARDING.md）：
+#   1. Teams/Integrations 里添加 App Store Connect API key，命名为 CodemagicASC
+#   2. 把 APP_STORE_APPLE_ID 改成你在 App Store Connect 建好 App 后的数字 ID
+
+workflows:
+  ios-testflight:
+    name: 喝水时间 iOS → TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: CodemagicASC
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.drinktime.app
+      vars:
+        XCODE_WORKSPACE: "ios/App/App.xcworkspace"
+        XCODE_SCHEME: "App"
+        APP_STORE_APPLE_ID: 0000000000   # ← 改成你的 App 的 Apple ID 数字
+      node: 20
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: 安装依赖
+        script: npm ci
+      - name: 生成 iOS 原生工程
+        script: |
+          npx cap add ios || true
+          npx cap sync ios
+      - name: 拉取签名描述文件
+        script: xcode-project use-profiles
+      - name: 设置构建号
+        script: |
+          cd ios/App
+          agvtool new-version -all $PROJECT_BUILD_NUMBER
+      - name: 打包 IPA
+        script: |
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
