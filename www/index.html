@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>喝水时间 · Drink Time</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1cb0f6">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="喝水时间">
 <style>
   *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent;
      font-family:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif; }
@@ -508,6 +515,11 @@ setInterval(()=>{ if(nextAt)tick(); },1000);
 setInterval(()=>{ if(data.date!==todayStr()){ data=load(); save(data); render(); } },30000);
 
 buildDrinks(); render(); if(data.remind) startRem();
+
+/* 注册 Service Worker（PWA 离线 + 可添加到主屏幕）；原生 App 内不需要 */
+if(!isNative && "serviceWorker" in navigator && location.protocol.startsWith("http")){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+}
 </script>
 </body>
 </html>
