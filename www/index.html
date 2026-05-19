@@ -151,13 +151,27 @@
     color:var(--muted); font-size:10px; }
   .chart-sum{ text-align:center; color:var(--muted); font-size:12px; margin-top:8px; }
   .chart-sum b{ color:var(--blue); font-weight:800; }
-  .lb{ position:fixed; inset:0; background:rgba(15,30,45,.86); z-index:50;
+  .lb{ position:fixed; inset:0; background:rgba(15,30,45,.86); z-index:70;
     display:none; align-items:center; justify-content:center; padding:24px; }
   .lb.on{ display:flex; }
   .lb img{ max-width:100%; max-height:80vh; border-radius:14px; }
   .lb .x{ position:absolute; top:calc(16px + env(safe-area-inset-top)); right:20px;
     color:#fff; font-size:30px; font-weight:300; cursor:pointer; line-height:1; }
-  .li .th{ cursor:pointer; }
+  .li{ cursor:pointer; }
+  .btn.del{ background:#ff5b5b; box-shadow:0 5px 0 #d23f3f; }
+  .btn.del:active{ box-shadow:0 0 0 #d23f3f; }
+  .sheet{ position:fixed; inset:0; background:rgba(15,30,45,.6); z-index:60;
+    display:none; align-items:flex-end; justify-content:center; }
+  .sheet.on{ display:flex; }
+  .sheet-card{ width:100%; max-width:430px; background:var(--card);
+    border-radius:24px 24px 0 0; padding:20px 18px calc(20px + env(safe-area-inset-bottom));
+    max-height:90vh; overflow-y:auto; animation:up .25s ease; }
+  @keyframes up{ from{transform:translateY(40px);opacity:.5} to{transform:none;opacity:1} }
+  .sheet-h{ font-size:17px; font-weight:800; margin-bottom:4px; }
+  .sheet-h span{ font-size:12px; color:var(--muted); font-weight:600; margin-left:8px; }
+  #eImgWrap img{ width:100%; max-height:240px; object-fit:cover; border-radius:14px;
+    cursor:pointer; display:block; }
+  .ph-acts{ display:flex; gap:9px; margin-top:9px; }
 
   .field{ display:flex; align-items:center; justify-content:space-between;
     padding:14px 0; border-bottom:1px solid var(--line); font-size:14px; }
@@ -306,6 +320,26 @@
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>设置</button>
   </nav>
   <div class="lb" id="lb"><span class="x" id="lbX">×</span><img id="lbImg" alt=""></div>
+
+  <div class="sheet" id="edit">
+    <div class="sheet-card">
+      <div class="sheet-h">编辑记录<span id="eTime"></span></div>
+      <label class="lbl">饮品</label>
+      <div class="drinks" id="eDrinks"></div>
+      <label class="lbl">水量 (ml)</label>
+      <input class="inp" type="number" id="eMl" min="1">
+      <label class="lbl">备注</label>
+      <input class="inp" id="eNote" placeholder="具体喝了什么（如 元气森林）">
+      <label class="lbl">照片</label>
+      <div id="eImgWrap"></div>
+      <input type="file" id="eImgIn" accept="image/*" hidden>
+      <div class="row" style="margin-top:18px">
+        <button class="btn del" id="eDel" style="flex:0 0 84px">删除</button>
+        <button class="btn ghost" id="eCancel" style="flex:1">取消</button>
+        <button class="btn g" id="eSave" style="flex:1">保存</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -387,12 +421,12 @@ function render(){
       <span class="ct">${a.n}次</span><span class="mn">${a.ml} ml</span>`; bx.appendChild(r); });
   const lg=$("log"); lg.innerHTML="";
   if(!data.log.length) lg.innerHTML='<div class="empty">今天还没喝，去“喝水”页记一笔～</div>';
-  [...data.log].reverse().forEach(e=>{
-    const r=document.createElement("div"); r.className="li";
+  data.log.map((e,i)=>({e,i})).reverse().forEach(({e,i})=>{
+    const r=document.createElement("div"); r.className="li"; r.dataset.idx=i;
     const th=e.img?`<img src="${e.img}">`:e.ic;
-    r.innerHTML=`<div class="th" ${e.img?`data-full="${e.img}"`:""}>${th}</div><div class="mid">
+    r.innerHTML=`<div class="th">${th}</div><div class="mid">
       <div class="t1">${e.note?e.note:e.name}${e.img?' 📷':''}</div>
-      <div class="t2">${e.t} · ${e.name} ${e.ml}ml</div></div>
+      <div class="t2">${e.t} · ${e.name} ${e.ml}ml · 点击编辑</div></div>
       <div class="amt">+${e.eff}</div>`;
     lg.appendChild(r);
   });
@@ -412,29 +446,87 @@ function addDrink(ml){
 }
 function splash(){ const r=$("ripple"); if(!r) return;
   r.classList.remove("go"); void r.offsetWidth; r.classList.add("go"); }
-/* 点明细里的照片放大查看 */
+/* 点记录 → 打开编辑弹窗 */
 $("log").addEventListener("click",e=>{
-  const t=e.target.closest(".th"); if(!t||!t.dataset.full) return;
-  $("lbImg").src=t.dataset.full; $("lb").classList.add("on");
+  const row=e.target.closest(".li"); if(!row||!row.dataset.idx) return;
+  openEdit(+row.dataset.idx);
 });
 $("lbX").onclick=()=>$("lb").classList.remove("on");
 $("lb").onclick=e=>{ if(e.target.id==="lb") $("lb").classList.remove("on"); };
+
+/* ===== 编辑记录弹窗 ===== */
+let editIdx=-1, editDrink="water", editImg="";
+function recompute(){
+  data.raw=data.log.reduce((s,e)=>s+(+e.ml||0),0);
+  data.effective=data.log.reduce((s,e)=>s+(+e.eff||0),0);
+}
+function buildEditDrinks(){
+  const b=$("eDrinks"); b.innerHTML="";
+  DRINKS.forEach(d=>{ const el=document.createElement("div");
+    el.className="drink"+(d.id===editDrink?" on":"");
+    el.innerHTML=`<span class="ic">${d.ic}</span>${d.name}<small>×${d.k}</small>`;
+    el.onclick=()=>{ editDrink=d.id; buildEditDrinks(); };
+    b.appendChild(el); });
+}
+function paintEditImg(){
+  $("eImgWrap").innerHTML = editImg
+    ? `<img src="${editImg}" id="eImgPreview"><div class="ph-acts">
+         <button class="btn ghost" id="eImgChg" style="flex:1">更换照片</button>
+         <button class="btn del" id="eImgDel" style="flex:1">删除照片</button></div>`
+    : `<button class="btn ghost" id="eImgAdd" style="width:100%">＋ 添加照片</button>`;
+  const add=$("eImgAdd"), chg=$("eImgChg"), del=$("eImgDel"), pv=$("eImgPreview");
+  if(add) add.onclick=()=>$("eImgIn").click();
+  if(chg) chg.onclick=()=>$("eImgIn").click();
+  if(del) del.onclick=()=>{ editImg=""; paintEditImg(); };
+  if(pv)  pv.onclick=()=>{ $("lbImg").src=editImg; $("lb").classList.add("on"); };
+}
+$("eImgIn").onchange=async e=>{ const f=e.target.files[0]; if(!f)return;
+  editImg=await compress(f); paintEditImg(); };
+function openEdit(idx){
+  const e=data.log[idx]; if(!e) return;
+  editIdx=idx; editDrink=e.drinkId||"water"; editImg=e.img||"";
+  $("eMl").value=e.ml; $("eNote").value=e.note||"";
+  $("eTime").textContent="记录时间 "+(e.t||"");
+  buildEditDrinks(); paintEditImg();
+  $("edit").classList.add("on");
+}
+function closeEdit(){ $("edit").classList.remove("on"); editIdx=-1; }
+$("eCancel").onclick=closeEdit;
+$("edit").onclick=e=>{ if(e.target.id==="edit") closeEdit(); };
+$("eSave").onclick=()=>{
+  const e=data.log[editIdx]; if(!e) return;
+  const ml=parseInt($("eMl").value);
+  if(!ml||ml<=0){ alert("请输入有效毫升数"); return; }
+  const d=DRINKS.find(x=>x.id===editDrink)||DRINKS[0];
+  e.ml=ml; e.drinkId=d.id; e.name=d.name; e.ic=d.ic;
+  e.eff=Math.round(ml*d.k); e.note=$("eNote").value.trim(); e.img=editImg;
+  recompute(); save(data); closeEdit(); render();
+};
+$("eDel").onclick=()=>{
+  if(!confirm("删除这条记录？")) return;
+  data.log.splice(editIdx,1); recompute(); save(data); closeEdit(); render();
+};
 document.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>addDrink(b.dataset.add));
 $("addCustom").onclick=()=>{ addDrink($("customMl").value); $("customMl").value=""; };
-function bindImg(){
-  $("imgBtn").onclick=()=>$("imgIn").click();
-  $("imgIn").onchange=e=>{
-    const f=e.target.files[0]; if(!f) return;
+function compress(file){
+  return new Promise(res=>{
     const rd=new FileReader();
     rd.onload=ev=>{ const im=new Image(); im.onload=()=>{
-      const c=document.createElement("canvas"); const m=140;
+      const c=document.createElement("canvas"), m=480;
       const sc=Math.min(m/im.width,m/im.height,1);
       c.width=im.width*sc; c.height=im.height*sc;
       c.getContext("2d").drawImage(im,0,0,c.width,c.height);
-      pendImg=c.toDataURL("image/jpeg",0.6);
-      $("imgBtn").innerHTML=`<img src="${pendImg}">`;
+      res(c.toDataURL("image/jpeg",0.62));
     }; im.src=ev.target.result; };
-    rd.readAsDataURL(f);
+    rd.readAsDataURL(file);
+  });
+}
+function bindImg(){
+  $("imgBtn").onclick=()=>$("imgIn").click();
+  $("imgIn").onchange=async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    pendImg=await compress(f);
+    $("imgBtn").innerHTML=`<img src="${pendImg}">`;
   };
 }
 bindImg();
